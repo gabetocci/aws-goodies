@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+
+#### show WAF rule overrides from Firewall Manager
+
+import boto3
+import json
+
+debug = False # True to show full JSON
+
+# return a dict of Firewall Manager policies
+def list_and_get_policies():
+
+    fms_client = boto3.client('fms')
+
+    # get all Firewall policies
+    response = fms_client.list_policies()
+    policies = response['PolicyList']
+
+    # Continue fetching if there are more policies
+    while 'NextToken' in response:
+        response = fms_client.list_policies(NextToken=response['NextToken'])
+        policies.extend(response['PolicyList'])
+
+    # Get details for each policy
+    detailed_policies = []
+    for policy in policies:
+        policy_id = policy['PolicyId']
+        detailed_policy = fms_client.get_policy(PolicyId=policy_id)
+        detailed_policies.append(detailed_policy['Policy'])
+
+    return detailed_policies
+
+# MAIN
+if __name__ == "__main__":
+    
+    # Loop through all Firewall policies
+    all_policies = list_and_get_policies()
+    for policy in all_policies:
+        
+        print(f"PolicyName: {policy['PolicyName']}")
+        
+        # Parse ManagedServiceData from JSON string to dict
+        managed_service_data = json.loads(policy['SecurityServicePolicyData']['ManagedServiceData'])
+
+        # DEBUG: Show the full JSON
+        if debug:
+            print("SecurityServicePolicyData:")
+            print(json.dumps(managed_service_data, indent=4))
+
+        # Print the Service Type
+        print(f"AWS Service: {managed_service_data['type']}")
+
+        # loop through the RuleGroups
+        for rule_group in managed_service_data.get('postProcessRuleGroups', []):
+            
+            # Print Rule Group Name
+            managed_rule_group_identifier = rule_group.get('managedRuleGroupIdentifier', [])
+            if managed_rule_group_identifier:
+                managed_rule_group_name = managed_rule_group_identifier.get('managedRuleGroupName', 'N/A')
+                print(f"  ManagedRuleGroupName: {managed_rule_group_name}")
+
+            # Print Excluded Rules
+            exclude_rules = rule_group.get('excludeRules', [])
+            if exclude_rules:
+                print("    ExcludedRules:")
+                for rule in exclude_rules:
+                    rule_name = rule.get('name', 'N/A')
+                    print(f"      - {rule_name}")
+
+            # Print Rule Overrides
+            rules_overrides = rule_group.get('ruleActionOverrides', [])
+            if rules_overrides:
+                print("    OverridenRules:")
+                for rule in rules_overrides:
+                    rule_name = rule.get('name', 'N/A')
+                    print(f"      - {rule_name}")
+            else:
+                print("    No OverridenRules:")
+
+        print("\n")
